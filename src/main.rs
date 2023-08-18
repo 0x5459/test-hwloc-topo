@@ -1,5 +1,5 @@
 use cgroups_rs::{cpuset::CpuSetController, hierarchies, Cgroup, CgroupPid};
-use hwloc::Topology;
+use hwloc::{ObjectType, Topology, TopologyObject};
 
 fn main() {
     let _cpuset = std::env::var("CPUSET").ok().map(|cpuset| {
@@ -11,15 +11,27 @@ fn main() {
     });
 
     let topo = Topology::new();
-    let allowed_cores = topo
-        .get_cpubind(hwloc::CpuBindFlags::empty())
-        .unwrap_or_else(|| {
-            topo.object_at_root()
-                .allowed_cpuset()
-                .unwrap_or_else(hwloc::CpuSet::full)
-        });
+    let core = get_core_by_index(&topo, CoreIndex(0));
 
-    dbg!(allowed_cores);
+    let cpuset = core.allowed_cpuset().unwrap();
+    dbg!(cpuset);
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+/// `CoreIndex` is a simple wrapper type for indexes into the set of visible cores. A `CoreIndex`
+/// should only ever be created with a value known to be less than the number of visible cores.
+pub struct CoreIndex(usize);
+
+fn get_core_by_index(topo: &Topology, index: CoreIndex) -> &TopologyObject {
+    let idx = index.0;
+
+    match topo.objects_with_type(&ObjectType::Core) {
+        Ok(all_cores) if idx < all_cores.len() => all_cores[idx],
+        Ok(all_cores) => {
+            panic!("idx ({}) out of range for {} cores", idx, all_cores.len())
+        }
+        _e => panic!("failed to get core by index {}", idx,),
+    }
 }
 
 struct CgroupHandler {
